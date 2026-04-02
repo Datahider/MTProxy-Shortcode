@@ -15,7 +15,8 @@ if (!defined('ABSPATH')) {
 final class MTProxy_QR_Shortcode_Plugin
 {
     private const OPTION_KEY = 'mtproxy_qr_settings';
-    private const SHORTCODE = 'mtproxy_qr';
+    private const QR_SHORTCODE = 'mtproxy_qr';
+    private const LINK_SHORTCODE = 'mtproxy_link';
 
     public static function bootstrap(): void
     {
@@ -48,7 +49,8 @@ final class MTProxy_QR_Shortcode_Plugin
 
     public static function register_shortcode(): void
     {
-        add_shortcode(self::SHORTCODE, [self::class, 'render_shortcode']);
+        add_shortcode(self::QR_SHORTCODE, [self::class, 'render_qr_shortcode']);
+        add_shortcode(self::LINK_SHORTCODE, [self::class, 'render_link_shortcode']);
     }
 
     public static function register_admin_menu(): void
@@ -190,26 +192,30 @@ final class MTProxy_QR_Shortcode_Plugin
                 submit_button();
                 ?>
             </form>
-            <p>Используйте shortcode: <code>[mtproxy_qr]</code></p>
+            <p>Используйте shortcode: <code>[mtproxy_qr]</code> и <code>[mtproxy_link]</code></p>
         </div>
         <?php
     }
 
-    public static function render_shortcode(array $atts = []): string
+    public static function render_qr_shortcode(array $atts = []): string
     {
         $settings = self::get_settings();
         $atts = shortcode_atts(
             [
                 'size' => (string) $settings['qr_size'],
                 'class' => '',
+                'qr_class' => '',
+                'link_container_class' => '',
                 'show_link' => (string) (int) $settings['show_proxy_link'],
             ],
             $atts,
-            self::SHORTCODE
+            self::QR_SHORTCODE
         );
 
         $size = max(120, min(1200, (int) $atts['size']));
-        $class = sanitize_html_class((string) $atts['class']);
+        $class = self::sanitize_classes((string) $atts['class']);
+        $qrClass = self::sanitize_classes((string) $atts['qr_class']);
+        $linkContainerClass = self::sanitize_classes((string) $atts['link_container_class']);
         $showLink = ((int) $atts['show_link']) === 1;
 
         $proxyUrl = self::fetch_proxy_url((string) $settings['endpoint_url'], (int) $settings['timeout']);
@@ -222,16 +228,66 @@ final class MTProxy_QR_Shortcode_Plugin
             return self::render_unavailable($class);
         }
 
-        $html = '<div class="mtproxy-qr ' . esc_attr($class) . '">';
-        $html .= '<img src="' . esc_url($qrUrl) . '" width="' . (int) $size . '" height="' . (int) $size . '" alt="MTProxy QR" loading="lazy" decoding="async" />';
+        $html = '<div class="' . esc_attr(trim('mtproxy-qr ' . $class)) . '">';
+        $html .= '<img class="' . esc_attr(trim('mtproxy-qr-image ' . $qrClass)) . '" src="' . esc_url($qrUrl) . '" width="' . (int) $size . '" height="' . (int) $size . '" alt="MTProxy QR" loading="lazy" decoding="async" />';
 
         if ($showLink) {
-            $html .= '<div class="mtproxy-qr-link" style="margin-top:8px"><a href="' . esc_url($proxyUrl) . '" target="_blank" rel="noopener noreferrer">Открыть прокси-ссылку</a></div>';
+            $html .= self::build_link_html($proxyUrl, $linkContainerClass);
         }
 
         $html .= '</div>';
 
         return $html;
+    }
+
+    public static function render_link_shortcode(array $atts = []): string
+    {
+        $settings = self::get_settings();
+        $atts = shortcode_atts(
+            [
+                'class' => '',
+            ],
+            $atts,
+            self::LINK_SHORTCODE
+        );
+
+        $class = self::sanitize_classes((string) $atts['class']);
+        $proxyUrl = self::fetch_proxy_url((string) $settings['endpoint_url'], (int) $settings['timeout']);
+        if ($proxyUrl === null) {
+            return '';
+        }
+
+        return self::build_link_html($proxyUrl, $class);
+    }
+
+    private static function build_link_html(string $proxyUrl, string $class = ''): string
+    {
+        $html = '<div class="' . esc_attr(trim('mtproxy-qr-link ' . $class)) . '">';
+        $html .= '<a class="mtproxy-qr-link-anchor" href="' . esc_url($proxyUrl) . '" target="_blank" rel="noopener noreferrer">Открыть прокси-ссылку</a>';
+        $html .= '</div>';
+
+        return $html;
+    }
+
+    private static function sanitize_classes(string $classes): string
+    {
+        $raw = preg_split('/\s+/', trim($classes));
+        if (!is_array($raw)) {
+            return '';
+        }
+
+        $clean = [];
+        foreach ($raw as $class) {
+            if ($class === '') {
+                continue;
+            }
+            $sanitized = sanitize_html_class($class);
+            if ($sanitized !== '') {
+                $clean[] = $sanitized;
+            }
+        }
+
+        return implode(' ', array_unique($clean));
     }
 
     private static function fetch_proxy_url(string $endpointUrl, int $timeout): ?string
